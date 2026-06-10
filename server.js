@@ -37,13 +37,22 @@ io.sockets.on('connection', function(socket){
 
 	// randomize initial values
 	init = {
-		'/control1/function' : Math.floor(Math.random()*5),
-		'/control2/function' : Math.floor(Math.random()*5),
-		'/control1/value' : Math.random()*4096,
-		'/control2/value' : Math.random()*4096,
-		'/control1/switch' : 1,
-		'/control2/switch' : 1,
-	}
+		'/dial/1':    Math.random() * 4096,
+		'/dial/2':    Math.random() * 4096,
+		'/dial/3':    Math.random() * 4096,
+		'/slider/1':  Math.random() * 4096,
+		'/slider/2':  Math.random() * 4096,
+		'/slider/3':  Math.random() * 4096,
+		'/slider/4':  Math.random() * 4096,
+		'/2way/1': 1,
+		'/2way/2': 0,
+		'/2way/3': 0,
+		'/3way/1': 0,
+		'/3way/2': 0,
+		'/button/1':  0,
+		'/button/2':  0,
+		'/button/3':  0,
+	  }
 
 	for (i in init){
 		console.log('send', i, init[i]);
