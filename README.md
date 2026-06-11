@@ -1,6 +1,6 @@
-# Abstraction Minified
+# The Reflective Zen Box
 
-A minified version of the [`.abstraction()`](https://github.com/tmhglnd/abstraction) installation that can be run on a RPi2+ with a small LCD screen and controlled with a self-build wireless controller using for example an ESP32.
+A generative visual installation by **Wilbert Tabone & Thijs Prakken** (2026), built on top of the [`.abstraction()`](https://github.com/tmhglnd/abstraction) codebase. It runs in the browser via a local NodeJS server and is designed to be driven by a wireless hardware controller (e.g. ESP32) sending OSC messages. Runs on a RPi2+ with a small LCD screen.
 
 ## Support my work
 
@@ -24,13 +24,44 @@ Then navigate in the browser to:
 
 `http://localhost:3000`
 
-Send OSC messages to control the visual function and parameter to:
+Send OSC messages to control the visuals to:
 
 `port 9999`
 
-`/control1/function <0-4>`
+### OSC Control Map
 
-`/control1/value <0-4096>`
+All continuous values (`/dial/*`, `/slider/*`) are in the range `0–4096` (ADC resolution of the ESP32) and are normalised to `0–1` internally.
+
+| Address | Range | Function |
+|---|---|---|
+| `/dial/1` | 0–4096 | Primary frequency / scale |
+| `/dial/2` | 0–4096 | Colour / hue dimension |
+| `/dial/3` | 0–4096 | Modulation / warp amount |
+| `/slider/1` | 0–4096 | Speed / scroll rate |
+| `/slider/2` | 0–4096 | Geometry size / scale factor |
+| `/slider/3` | 0–4096 | Feedback / blend amount |
+| `/slider/4` | 0–4096 | Secondary frequency / noise density |
+| `/2way/1` | 0 or 1 | Feedback layer on/off |
+| `/2way/2` | 0 or 1 | Colour invert |
+| `/2way/3` | 0 or 1 | Mirror / symmetry axis |
+| `/3way/1` | 0, 1, or 2 | Post-processing: 0=raw, 1=pixelate, 2=posterize |
+| `/3way/2` | 0, 1, or 2 | Blend mode: 0=add, 1=diff, 2=mult |
+| `/button/1` | 0 or 1 | Cycle to next visual snippet (on press) |
+| `/button/2` | 0 or 1 | Freeze motion (hold down) |
+| `/button/3` | 0 or 1 | Randomise all continuous controls (on press) |
+
+### Visual Snippets
+
+The installation cycles through 8 Hydra visual snippets in order:
+
+1. **squiggle** – gradient shape with noise modulation and feedback
+2. **mosaic** – oscillator with kaleidoscope and voronoi pixel modulation
+3. **smear** – self-referencing buffer smear with scrolling and colour shift
+4. **glass** – oscillator with kaleid modulation and shape repetition
+5. **paint** – noise-based painterly texture with feedback
+6. **tunnel** – zooming concentric rings warped with voronoi
+7. **ripple** – scrolling gradient distorted by noise, water-like surface
+8. **fracture** – voronoi cells with colour banding and stained-glass effect
 
 # Make this into an installation running on a Raspberry Pi
 
@@ -326,7 +357,9 @@ For troubleshooting see [this page](https://learn.adafruit.com/setting-up-a-rasp
 
 # Acknowledgements
 
-This installation is a derivative version of the `.abstraction()` installation that was originally commissioned by the [CODA Museum](https://www.coda-apeldoorn.nl/) in Apeldoorn, The Netherlands.
+**The Reflective Zen Box** was created by Wilbert Tabone & Thijs Prakken (2026).
+
+It is a derivative of the `.abstraction()` installation originally commissioned by the [CODA Museum](https://www.coda-apeldoorn.nl/) in Apeldoorn, The Netherlands.
 
 This project was made possible thanks to the usage following amazing platforms and libraries:
 

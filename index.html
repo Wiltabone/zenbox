@@ -156,7 +156,7 @@
 			'/2way/2':  (v) => { ctrl.switch2_2 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 			'/2way/3':  (v) => { ctrl.switch2_3 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 
-			'/3way/1':  (v) => { ctrl.switch3_1 = v; },
+			'/3way/1':  (v) => { ctrl.switch3_1 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 			'/3way/2':  (v) => { ctrl.switch3_2 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 
 			'/button/1':   (v) => {
@@ -247,7 +247,7 @@
 		.${blendMode()}(
 		src(o0).scale(1.02),
 		() => ctrl.switch2_1 ? ctrl.slider3 * 0.95 : 0)
-		${mirrorLayer()}${invertLayer()})
+		${mirrorLayer()}${invertLayer()}${postProcess()})
 	.out(${o})`,
 
 	// ── 1: mosaic (original, extended) ──────────────────────────
@@ -259,7 +259,7 @@
         .modulatePixelate(
           voronoi(() => ctrl.slider4 * 10 + 2, 0.15, 0),
           () => sin(ctrl.dial3 * pi2 * 4) * 10 + 11)
-        ${mirrorLayer()}${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
 
 	  // ── 2: smear (original, extended) ───────────────────────────
@@ -274,7 +274,7 @@
           () => ctrl.switch2_3 ? 0 : ctrl.slider1 * 0.02 - 0.01)
         .diff(solid(0, () => ctrl.dial1 * 0.8, () => ctrl.slider2 * 0.9)
           .mask(noise(() => ctrl.slider4 * 3 + 1, 0.2).thresh(0.5, 0)))
-        ${invertLayer()}
+        ${invertLayer()}${postProcess()}
       .out(${o})`,
 
 	  // ── 3: glass (original, extended) ───────────────────────────
@@ -291,7 +291,7 @@
           () => int(ctrl.slider4 * 8) + 2)
         .colorama(() => ctrl.dial2 * 0.6 + 0.1)
         .saturate(() => ctrl.slider3 * 6 + 1)
-        ${invertLayer()}
+        ${invertLayer()}${postProcess()}
       .out(${o})`,
 
 	  // ── 4: paint (original, extended) ───────────────────────────
@@ -306,7 +306,7 @@
         .${blendMode()}(
           src(o0).scale(() => ctrl.slider2 * 0.1 + 0.95),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.6 : 0)
-        ${mirrorLayer()}${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
 
 
@@ -324,7 +324,7 @@
         .${blendMode()}(
           src(o0).scale(() => 1 + ctrl.slider3 * 0.04),
           () => ctrl.switch2_1 ? 0.85 : 0)
-        ${mirrorLayer()}${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
 
 	  // ── 6: ripple ───────────────────────────────────────────────
@@ -344,7 +344,7 @@
         .${blendMode()}(
           src(o0),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.7 : 0)
-        ${mirrorLayer()}${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
 
 	  // ── 7: fracture ─────────────────────────────────────────────
@@ -363,7 +363,7 @@
         .${blendMode()}(
           src(o0).scale(1.01).hue(() => ctrl.dial2 * 0.02),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.8 : 0)
-        ${mirrorLayer()}${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
   };
 
@@ -378,6 +378,14 @@
 	// switch2_3: 2-fold kaleid = horizontal mirror; triggers re-eval via controlMap
 	function mirrorLayer() {
 		return ctrl.switch2_3 ? '.kaleid(2)' : '';
+	}
+
+	// ─── Post-processing tier ─────────────────────────────────────
+	// switch3_1: 0=raw, 1=pixelate, 2=posterize (high contrast)
+	function postProcess() {
+		if (ctrl.switch3_1 === 1) return '.pixelate(20, 20)';
+		if (ctrl.switch3_1 === 2) return '.contrast(3).brightness(-0.1)';
+		return '';
 	}
 
 	// ─── Colour invert helper ─────────────────────────────────────
