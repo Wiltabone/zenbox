@@ -153,33 +153,32 @@
 			'/slider/4':   (v) => { ctrl.slider4 = v / adcRes; },
 
 			'/2way/1':  (v) => { ctrl.switch2_1 = v; },
-			'/2way/2':  (v) => { ctrl.switch2_2 = v; },
-			'/2way/3':  (v) => { ctrl.switch2_3 = v; },
+			'/2way/2':  (v) => { ctrl.switch2_2 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
+			'/2way/3':  (v) => { ctrl.switch2_3 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 
-			'/3way/1':  (v) => {
-			// 3-way switch gives 0,1,2 — map to 3 banks of snippets
-			ctrl.switch3_1 = v;
-			let idx = snippetIndexFromSwitches();
-			if (idx !== currentSnippet) {
-				currentSnippet = idx;
-				visual(idx, 'o0');
-			}
-			},
-			'/3way/2':  (v) => { ctrl.switch3_2 = v; },
+			'/3way/1':  (v) => { ctrl.switch3_1 = v; },
+			'/3way/2':  (v) => { ctrl.switch3_2 = v; if (currentSnippet >= 0) visual(currentSnippet, 'o0'); },
 
 			'/button/1':   (v) => {
-			if (v === 1) randomiseControls();
+			if (v === 1) {
+				let snippets = Object.keys(codeSnippets);
+				currentSnippet = (currentSnippet + 1) % snippets.length;
+				console.log('snippet:', snippets[currentSnippet]);
+				visual(currentSnippet, 'o0');
+			}
 			},
 			'/button/2':   (v) => {
 			// hold to freeze: button down sets speed 0, release restores
 			ctrl.button2 = v;
 			},
 			'/button/3':   (v) => {
-			if (v === 1) {
-				solid().out(o0);
-				displayCode('solid().out(o0)', 'o0');
-				currentSnippet = -1;
-			}
+			if (v === 1) randomiseControls();
+			// if (v === 1) {
+			// 	solid().out(o0);
+			// 	displayCode('solid().out(o0)', 'o0');
+			// 	currentSnippet = -1;
+			// }
+			console.log('hello');
 			},
 		};
 
@@ -196,7 +195,7 @@
 		let socket = io();
 
 		socket.on('message', (...msg) => {
-		resetTimer();
+		// resetTimer();
 		const [address, value] = msg;
 		if (controlMap[address]) {
 			controlMap[address](value);
@@ -248,7 +247,7 @@
 		.${blendMode()}(
 		src(o0).scale(1.02),
 		() => ctrl.switch2_1 ? ctrl.slider3 * 0.95 : 0)
-		${invertLayer()})
+		${mirrorLayer()}${invertLayer()})
 	.out(${o})`,
 
 	// ── 1: mosaic (original, extended) ──────────────────────────
@@ -260,7 +259,7 @@
         .modulatePixelate(
           voronoi(() => ctrl.slider4 * 10 + 2, 0.15, 0),
           () => sin(ctrl.dial3 * pi2 * 4) * 10 + 11)
-        ${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}
       .out(${o})`,
 
 	  // ── 2: smear (original, extended) ───────────────────────────
@@ -307,7 +306,7 @@
         .${blendMode()}(
           src(o0).scale(() => ctrl.slider2 * 0.1 + 0.95),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.6 : 0)
-        ${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}
       .out(${o})`,
 
 
@@ -325,9 +324,9 @@
         .${blendMode()}(
           src(o0).scale(() => 1 + ctrl.slider3 * 0.04),
           () => ctrl.switch2_1 ? 0.85 : 0)
-        ${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}
       .out(${o})`,
- 
+
 	  // ── 6: ripple ───────────────────────────────────────────────
     // Scrolling gradient distorted by noise, creates water-like surface
     'ripple': (o) =>
@@ -345,7 +344,7 @@
         .${blendMode()}(
           src(o0),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.7 : 0)
-        ${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}
       .out(${o})`,
 
 	  // ── 7: fracture ─────────────────────────────────────────────
@@ -364,7 +363,7 @@
         .${blendMode()}(
           src(o0).scale(1.01).hue(() => ctrl.dial2 * 0.02),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.8 : 0)
-        ${invertLayer()}
+        ${mirrorLayer()}${invertLayer()}
       .out(${o})`,
   };
 
@@ -373,6 +372,12 @@
 	function blendMode() {
 		const modes = ['add', 'diff', 'mult'];
 		return modes[ctrl.switch3_2] || 'add';
+	}
+
+	// ─── Mirror helper ────────────────────────────────────────────
+	// switch2_3: 2-fold kaleid = horizontal mirror; triggers re-eval via controlMap
+	function mirrorLayer() {
+		return ctrl.switch2_3 ? '.kaleid(2)' : '';
 	}
 
 	// ─── Colour invert helper ─────────────────────────────────────
@@ -388,24 +393,28 @@
 		idx = Math.min(idx, snippets.length - 1);
 		let code = codeSnippets[snippets[idx]](out);
 		eval(code);
-		displayCode(code, out);
+		//displayCode(code, out);
 	}
+
+	// load the first snippet on startup
+	currentSnippet = 0;
+	visual(0, 'o0');
 }
 
 // A timer that makes the code transparent when the 
 			// installation is not used for a little while
-			let timer;
-			function resetTimer(){
-				// reset timer that turns of sound
-				clearTimeout(timer);
-				timer = setTimeout(() => {
-					document.getElementById('o0').style.opacity = 0.5;
-					// p.outputVolume(0.125, 1);
-				}, 5000);
-				// turn on volume if controller is touched
-				// p.outputVolume(0.7, 0.5);
-				document.getElementById('o0').style.opacity = 1;
-			}
+			// let timer;
+			// function resetTimer(){
+			// 	// reset timer that turns of sound
+			// 	clearTimeout(timer);
+			// 	timer = setTimeout(() => {
+			// 		document.getElementById('o0').style.opacity = 0.5;
+			// 		// p.outputVolume(0.125, 1);
+			// 	}, 5000);
+			// 	// turn on volume if controller is touched
+			// 	// p.outputVolume(0.7, 0.5);
+			// 	document.getElementById('o0').style.opacity = 1;
+			// }
 
 			// Generate the new visual code
 			function visual(ctl, out){
@@ -416,7 +425,7 @@
 				// generate the visuals
 				eval(code);
 				// display the code also as text on the screen
-				displayCode(code, out);
+				//displayCode(code, out);
 			}
 
 			// display the code as text on the screen
