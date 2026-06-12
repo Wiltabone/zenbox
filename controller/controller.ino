@@ -1,296 +1,139 @@
 /*
-  .abstraction().minified()
+  The Reflective Zen Box
+  Controller code for Arduino Mega
+  by Wilbert Tabone & Thijs Prakken, 2026
 
-  Code for the .abstraction().minified() controller.
-  For the interactive coding artwork by Timo Hoogland, 2024
-  www.timohoogland.com
+  Sends control messages over Serial (USB) directly to the Raspberry Pi.
+  Each message is one line: /address value\n
 
-  This sketch connects the ESP32 Wemos Lolin32 to another WiFi network and 
-  broadcasts analogRead() osc-messages to over the network at port 9999
+  Pin mapping:
+    Dials    A0=/dial/1   A1=/dial/2   A2=/dial/3
+    Sliders  A3=/slider/1 A4=/slider/2 A5=/slider/3 A6=/slider/4
+    2-way    D2=/2way/1   D3=/2way/2   D4=/2way/3
+    3-way    D5+D6=/3way/1  (both HIGH=0, D5 LOW=1, D6 LOW=2)
+             D7+D8=/3way/2  (both HIGH=0, D7 LOW=1, D8 LOW=2)
+    Buttons  D9=/button/1  D10=/button/2  D11=/button/3
 
-  The RGB display shows the selected function and potmeter value as float 0-1
-
-  Based on the WiFiUDPClient.ino example
-  Using OSC by Adrian Freed & Yotam Mann
-  Using Waveshare LCD1602 RGB library
-  Extended by Timo Hoogland, www.timohoogland.com, 2024
+  All digital inputs use INPUT_PULLUP — wire to GND when active.
+  Analog values are scaled from 10-bit (0-1023) to 0-4096 to match
+  the adcRes setting in index.html.
 */
 
-// include libraries for WiFi and OSC
-#include <WiFi.h>
-#include <WiFiUdp.h>
-#include <OSCMessage.h>
+// ── Analog pins ──────────────────────────────────────────────────
+const int ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5, A6 };
+const char* ANALOG_ADDR[] = {
+  "/dial/1", "/dial/2", "/dial/3",
+  "/slider/1", "/slider/2", "/slider/3", "/slider/4"
+};
 
-// include libraries for LCD1602 RGB
-#include <Wire.h>
-#include "Waveshare_LCD1602_RGB.h"
+// ── Digital pins ─────────────────────────────────────────────────
+#define SW2_1_PIN  2
+#define SW2_2_PIN  3
+#define SW2_3_PIN  4
+#define SW3_1A_PIN 5
+#define SW3_1B_PIN 6
+#define SW3_2A_PIN 7
+#define SW3_2B_PIN 8
+#define BTN1_PIN   9
+#define BTN2_PIN   10
+#define BTN3_PIN   11
 
-// WiFi network name and password
-// const char * networkName = "./the-matrix.exe";
-// const char * networkPswd = "qnhk4mcVkmdk";
-const char * networkName = "RPiAccessPoint";
-const char * networkPswd = "RPiPassWord";
+const int   SW2_PINS[]  = { SW2_1_PIN,  SW2_2_PIN,  SW2_3_PIN  };
+const char* SW2_ADDR[]  = { "/2way/1",  "/2way/2",  "/2way/3"  };
+const int   BTN_PINS[]  = { BTN1_PIN,   BTN2_PIN,   BTN3_PIN   };
+const char* BTN_ADDR[]  = { "/button/1", "/button/2", "/button/3" };
 
-// Broadcast to all devices in the network on port
-// const char * udpAddress = "255.255.255.255";
-// Destionation IP is raspberry pi's static ip address
-const char * udpAddress = "192.168.4.1";
-const int udpPort = 9999;
+// ── Analog smoothing & threshold ─────────────────────────────────
+const float SMOOTH = 0.7;   // 0=no smoothing, higher=smoother/slower
+const int   THRESH = 8;     // minimum change required to send (0–4096 scale)
 
-// Are we currently connected?
-boolean connected = false;
+float smoothed[7];
+int   prevAnalog[7];
 
-// The udp library class
-WiFiUDP udp;
+// ── Digital history ───────────────────────────────────────────────
+int prev2way[3] = { -1, -1, -1 };
+int prev3way[2] = { -1, -1 };
+int prevBtn[3]  = { -1, -1, -1 };
 
-// the display is 16x2 characters
-Waveshare_LCD1602_RGB lcd(16, 2);
+unsigned long btnLastChange[3]  = { 0, 0, 0 };
+const unsigned long DEBOUNCE_MS = 50;
 
-// include library for rotary encoder
-// Using https://github.com/brianlow/Rotary by Brian Low
-#include <Rotary.h>
-
-// S1 = CLK pin, click signal, LOW > HIGH > LOW
-#define CLK_PIN 34
-// S2 = DT pin, lags behind CLK by 90 degrees 
-#define DT_PIN 35
-
-// create instance of rotary for clock and data pin
-Rotary rot = Rotary(CLK_PIN, DT_PIN);
-
-// Define the GPIO pin for a test LED or set the pin for built-in LED
-#define LED_BUILTIN 5
-// Keep track of time since the last blink for status LED
-int sinceBlink = 0;
-// Keep track of time since last screen update
-int sinceUpdate = 0;
-// Keep track of time since last sensor poll
-int sincePoll = 0;
-// Keep track of time since last osc message send
-int sinceOSC = 0;
-
-// define analog read gpio pins where the potmeters are connected to
-#define POT_PIN1 33
-
-// history for potmeters to filter noise with threshold
-int _p1;
-int thresh = 10;
-
-// history for potmeter smoothing
-float _s1;
-float smooth = 0.7;
-
-// value for rotary position
-int pos = 0;
-int _pos = 0;
-
-void setup(){
-  // set the pin modes
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(POT_PIN1, INPUT);
-
-  pinMode(CLK_PIN, INPUT);
-  pinMode(DT_PIN, INPUT);
-
-  // initilize hardware serial:
-  Serial.begin(9600);
-
-  // initialize LCD
-  lcd.init();
-
-  // enable cursor blinking
-  // lcd.blink();
-
-  // run the startscreen
-  lcd.setRGB(255, 255, 255);
-  startScreen();
-
-  // connect to the WiFi network and start udp
-  connectToWiFi(networkName, networkPswd);
-  // udp.begin(udpPort);
-
-  // initialize the rotary encoder
-  rot.begin();
+// ── Helpers ───────────────────────────────────────────────────────
+void sendMsg(const char* addr, int val) {
+  Serial.print(addr);
+  Serial.print(' ');
+  Serial.println(val);
 }
 
-void loop(){
-  // read rotary direction change and inc/dec the position
-  int dir = rot.process();
+// Returns 0, 1, or 2 based on which leg of the 3-way switch is pulled low.
+int read3way(int pinA, int pinB) {
+  if (!digitalRead(pinA)) return 1;
+  if (!digitalRead(pinB)) return 2;
+  return 0;
+}
 
-  if (dir == DIR_CW){
-    pos++;
-    if (pos > 4){ pos = 0; }
-  } else if (dir == DIR_CCW){
-    pos--;
-    if (pos < 0){ pos = 4; }
+// ── Setup ─────────────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+
+  // Seed the smoother with the first real readings so startup is instant
+  for (int i = 0; i < 7; i++) {
+    pinMode(ANALOG_PINS[i], INPUT);
+    smoothed[i]   = map(analogRead(ANALOG_PINS[i]), 0, 1023, 0, 4096);
+    prevAnalog[i] = (int)smoothed[i];
   }
 
-  // Uncomment for posting rotary position in the monitor
-  // if (pos != _pos){
-  //   _pos = pos;
-  //   Serial.print(" rotary: ");
-  //   Serial.println(pos);
-  // }
+  // All digital inputs pulled high — active when connected to GND
+  const int digitalPins[] = {
+    SW2_1_PIN, SW2_2_PIN, SW2_3_PIN,
+    SW3_1A_PIN, SW3_1B_PIN, SW3_2A_PIN, SW3_2B_PIN,
+    BTN1_PIN, BTN2_PIN, BTN3_PIN
+  };
+  for (int i = 0; i < 10; i++) {
+    pinMode(digitalPins[i], INPUT_PULLUP);
+  }
+}
 
-  // read the values from the potmeters
-  int pot1 = analogRead(POT_PIN1);
+// ── Loop ──────────────────────────────────────────────────────────
+void loop() {
 
-  // apply a lowpass filter on the readings
-  _s1 = pot1 * (1-smooth) + _s1 * smooth;
-
-  // Uncomment for plotting in the Serial Plotter and Monitor
-  // Serial.print("0 4096 ");
-  // Serial.print(_p1);
-  
-  // only send data when connected
-  if (connected){
-    // only poll send osc messages every 20 ms
-    if ((millis() - sinceOSC) >= 20){
-      sinceOSC = millis();
-      // only send data when relative value changed above threshold
-
-      if (pos != _pos){
-        _pos = pos;
-        sendMessage("/control1/function", _pos);
-      }
-      if (abs(_s1 - _p1) > thresh){
-        sendMessage("/control1/value", _s1);
-        _p1 = _s1;
-      }
+  // Analog inputs: smooth → threshold → send
+  for (int i = 0; i < 7; i++) {
+    int raw = map(analogRead(ANALOG_PINS[i]), 0, 1023, 0, 4096);
+    smoothed[i] = raw * (1.0 - SMOOTH) + smoothed[i] * SMOOTH;
+    int val = (int)smoothed[i];
+    if (abs(val - prevAnalog[i]) > THRESH) {
+      prevAnalog[i] = val;
+      sendMsg(ANALOG_ADDR[i], val);
     }
+  }
 
-    // only update the screen every 100 milliseconds
-    if (millis() - sinceUpdate >= 250){
-      sinceUpdate = millis();
-      lcd.setRGB(255, (_pos * 102) % 256, _p1/16);
-      // lcd.setRGB(255, _p1/16, _p2/16);
-      displayFunction(_pos);
-      // displayFunction(_p1);
-      displayValue(_p1);
+  // 2-way switches: send on change
+  for (int i = 0; i < 3; i++) {
+    int val = !digitalRead(SW2_PINS[i]);
+    if (val != prev2way[i]) {
+      prev2way[i] = val;
+      sendMsg(SW2_ADDR[i], val);
     }
-  } else {
-    // not connected yet
-    lcd.setCursor(0, 0);
-    lcd.send_string("connecting...");
   }
 
-  // status LED blinks every 1000 on/off to indicate WiFi is connected
-  // the status LED blinks rapidly every 50ms to indicate no WiFi connection
-  if (millis() - sinceBlink >= (50 + connected * 950)){
-    sinceBlink = millis();
-    digitalWrite(BUILTIN_LED, !digitalRead(BUILTIN_LED));
+  // 3-way switches: send on change
+  int v3_1 = read3way(SW3_1A_PIN, SW3_1B_PIN);
+  if (v3_1 != prev3way[0]) { prev3way[0] = v3_1; sendMsg("/3way/1", v3_1); }
+
+  int v3_2 = read3way(SW3_2A_PIN, SW3_2B_PIN);
+  if (v3_2 != prev3way[1]) { prev3way[1] = v3_2; sendMsg("/3way/2", v3_2); }
+
+  // Buttons: debounce + send on change
+  unsigned long now = millis();
+  for (int i = 0; i < 3; i++) {
+    int val = !digitalRead(BTN_PINS[i]);
+    if (val != prevBtn[i] && (now - btnLastChange[i]) > DEBOUNCE_MS) {
+      prevBtn[i]       = val;
+      btnLastChange[i] = now;
+      sendMsg(BTN_ADDR[i], val);
+    }
   }
 
-  // wait a little to reduce cpu cycles
-  delay(1);
-}
-
-// A function that sends an OSC-message to specified IP and Port
-// with variable address and value
-void sendMessage(char addr[], int val){
-  // the messages wants an OSC address as first argument
-  OSCMessage msg(addr);
-  // add the value to the message
-  msg.add(val);
-
-  udp.beginPacket(udpAddress, udpPort);
-  // send the bytes to the SLIP stream
-  msg.send(udp);
-  // mark the end of the OSC Packet
-  udp.endPacket();
-  // free space occupied by message
-  msg.empty();
-}
-
-// Function to connect to the WiFi network
-void connectToWiFi(const char * ssid, const char * pwd){
-  Serial.println("Connecting to WiFi network: " + String(ssid));
-  // delete old config
-  WiFi.disconnect(true);
-  // register event handler
-  WiFi.onEvent(WiFiEvent);
-  // initiate connection
-  WiFi.begin(ssid, pwd);
-  Serial.println("Waiting for WIFI connection...");
-}
-
-// WiFi event handler
-void WiFiEvent(WiFiEvent_t event){
-  switch(event) {
-    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      // When connected set 
-      Serial.print("WiFi connected! IP address: ");
-      Serial.println(WiFi.localIP());
-      // Initializes the UDP state
-      // This initializes the transfer buffer
-      udp.begin(WiFi.localIP(),udpPort);
-      connected = true;
-      break;
-    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      Serial.println("WiFi lost connection");
-      connected = false;
-      break;
-    default: break;
-  }
-}
-
-// function names for display
-char *functionNames[] = { "squiggle", "mosaic", "smear", "glass", "paint" };
-// history for values to adjust only when changing.
-int _f = -1;
-int _v = -1;
-
-// a function that displays the function name
-void displayFunction(int f){
-  // print the function name on first line
-  // only when it changed
-  // int func = int(float(f) / 4096 * 5);
-  int func = f;
-  if (_f != func){
-    _f = func;
-    lcd.setCursor(0, 0);
-    lcd.send_string(" .");
-    lcd.send_string(functionNames[_f]);
-    lcd.send_string("(   ");
-  }
-}
-
-// a function that displays the value as float 0-1
-void displayValue(int v){
-  // downscale the value range
-  int val = int(float(v) / 4096 * 110);
-
-  // only when it changed
-  if (_v != val){
-    _v = val;
-    // generate a char array for number displaying
-    char displayNumber[10];
-    // convert float value to string with fixed digits
-    dtostrf(float(val) / 110, 8, 3, displayNumber);
-
-    // print the variable number from the knob as float 0-1
-    lcd.setCursor(0, 1);
-    lcd.send_string("   ");
-    // lcd.send_string(char(val));
-    lcd.send_string(displayNumber);
-
-    // end the line of code
-    lcd.send_string(" );");
-  }
-}
-
-// A function that displays the startscreen message
-void startScreen(){
-  // display the installation name and wait a little
-  lcd.setCursor(0, 0);
-  lcd.send_string(".abstraction()");
-  delay(1000);
-  
-  // display my name and wait a little
-  lcd.setCursor(0, 1);
-  lcd.send_string("  by tmhglnd");
-  delay(5000);
-
-  // clear the screen
-  lcd.clear();
+  delay(5);
 }

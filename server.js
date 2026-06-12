@@ -4,6 +4,8 @@ const max = require('max-api-or-not');
 const socket = require('socket.io');
 const shell = require('child_process');
 const rpi = require('detect-rpi');
+const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
 
 // add --debug option to not start in full screen and log
 const verbose = process.argv[2] === '--debug';
@@ -87,4 +89,33 @@ let osc = new Server(oscPort, '0.0.0.0', () => {
 // send all parameters from Max (for testing purposes)
 max.addHandler('message', (...v) => {
 	io.emit('message', ...v);
+});
+
+// ── Serial port listener (Arduino Mega via USB) ───────────────────
+// Override the port with: SERIAL_PORT=/dev/ttyUSB0 npm start
+const serialPath = process.env.SERIAL_PORT || '/dev/ttyACM0';
+
+const serial = new SerialPort({ path: serialPath, baudRate: 115200 }, (err) => {
+	if (err) {
+		console.log(`Serial port ${serialPath} not available: ${err.message}`);
+	}
+});
+
+serial.on('open', () => {
+	console.log(`Serial port open: ${serialPath} at 115200 baud`);
+});
+
+const parser = serial.pipe(new ReadlineParser({ delimiter: '\n' }));
+
+parser.on('data', (line) => {
+	const parts = line.trim().split(' ');
+	if (parts.length !== 2) return;
+	const address = parts[0];
+	const value   = parseFloat(parts[1]);
+	if (!address.startsWith('/') || isNaN(value)) return;
+
+	if (verbose) { console.log('serial:', address, value); }
+
+	if (init[address] !== undefined) { init[address] = value; }
+	io.emit('message', address, value);
 });
