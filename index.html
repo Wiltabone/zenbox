@@ -178,7 +178,6 @@
 			// 	displayCode('solid().out(o0)', 'o0');
 			// 	currentSnippet = -1;
 			// }
-			console.log('hello');
 			},
 		};
 
@@ -348,7 +347,7 @@
       .out(${o})`,
 
 	  // ── 7: fracture ─────────────────────────────────────────────
-    // Voronoi cells with sharp colour banding, switch3_2 changes 
+    // Voronoi cells with sharp colour banding, switch3_2 changes
     // the blend creating stained-glass vs x-ray aesthetic
     'fracture': (o) =>
       `voronoi(() => ctrl.dial1 * 10 + 2,
@@ -363,6 +362,52 @@
         .${blendMode()}(
           src(o0).scale(1.01).hue(() => ctrl.dial2 * 0.02),
           () => ctrl.switch2_1 ? ctrl.slider3 * 0.8 : 0)
+        ${mirrorLayer()}${invertLayer()}${postProcess()}
+      .out(${o})`,
+
+    // ── 8: lattice ──────────────────────────────────────────────
+    // High-kaleid oscillator scrolled and multiplied against itself,
+    // creating a crystalline moiré lattice; dial1=freq, slider2=sides,
+    // slider4=y-scale, dial3=scroll offset, slider1=speed, dial2=colour
+    'lattice': (o) =>
+      `(function() {
+        var pat = () => osc(() => ctrl.dial1 * 400 + 10,
+                            () => ctrl.button2 ? 0 : ctrl.slider1 * 0.2 - 0.1,
+                            () => ctrl.dial2 * pi2)
+          .kaleid(() => int(ctrl.slider2 * 196) + 4)
+          .scale(1, () => ctrl.slider4 * 0.8 + 0.1);
+        pat()
+          .scrollX(
+            () => ctrl.dial3 * 0.2 - 0.1,
+            () => ctrl.button2 ? 0 : ctrl.slider1 * 0.05 - 0.025)
+          .mult(pat())
+          .${blendMode()}(
+            src(o0).scale(() => 1 + ctrl.slider3 * 0.02),
+            () => ctrl.switch2_1 ? ctrl.slider3 * 0.85 : 0)
+          ${mirrorLayer()}${invertLayer()}${postProcess()}
+          .out(${o});
+      })()`,
+
+    // ── 9: vortex ───────────────────────────────────────────────
+    // Self-modulating kaleid vortex driven by time-based rotation;
+    // dial3=feedback depth, slider2=kaleid cycle speed, slider3=zoom
+    'vortex': (o) =>
+      `osc(() => ctrl.dial1 * 20 + 1,
+            () => ctrl.button2 ? 0 : ctrl.slider1 * 1.5 + 0.1,
+            () => ctrl.dial2 * 0.1)
+        .kaleid(() => [3,4,5,7,8,9,10][int(time * (ctrl.slider2 * 0.3 + 0.02)) % 7])
+        .color(() => ctrl.dial2 * 0.5 + 0.2, () => ctrl.dial2 * 0.3 + 0.1)
+        .colorama(() => ctrl.slider4 * 0.6 + 0.05)
+        .rotate(
+          0,
+          () => ctrl.button2 ? 0 : sin(time) * (ctrl.slider1 * 0.004 - 0.002))
+        .modulateRotate(
+          src(o0),
+          () => ctrl.switch2_1 ? sin(time) * ctrl.dial3 * 0.005 : 0)
+        .modulate(
+          src(o0),
+          () => ctrl.switch2_1 ? ctrl.dial3 * 0.4 : 0)
+        .scale(() => ctrl.slider3 * 0.3 + 0.8)
         ${mirrorLayer()}${invertLayer()}${postProcess()}
       .out(${o})`,
   };
