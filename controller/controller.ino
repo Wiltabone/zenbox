@@ -13,11 +13,27 @@
     3-way    D5+D6=/3way/1  (both HIGH=0, D5 LOW=1, D6 LOW=2)
              D7+D8=/3way/2  (both HIGH=0, D7 LOW=1, D8 LOW=2)
     Buttons  D9=/button/1  D10=/button/2  D11=/button/3
+    Haptic   SDA=20  SCL=21 (Mega hardware I2C)
+             DRV2605L #1 → I2C 0x5A (ADDR pin LOW  — default)
+             DRV2605L #2 → I2C 0x5B (ADDR pin HIGH — bridge ADDR pad)
 
   All digital inputs use INPUT_PULLUP — wire to GND when active.
   Analog values are scaled from 10-bit (0-1023) to 0-4096 to match
   the adcRes setting in index.html.
+
+  /button/2 toggles haptic motors on/off on each press.
+  Motor 1 intensity mirrors average of dial values.
+  Motor 2 intensity mirrors average of slider values.
 */
+
+#include <Wire.h>
+#include <Adafruit_DRV2605.h>
+
+// ── Haptic controllers ────────────────────────────────────────────
+Adafruit_DRV2605 haptic1;   // 0x5A — ADDR pin LOW (default)
+Adafruit_DRV2605 haptic2;   // 0x5B — ADDR pin HIGH
+
+bool hapticEnabled = true;
 
 // ── Analog pins ──────────────────────────────────────────────────
 const int ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5, A6 };
@@ -72,6 +88,16 @@ int read3way(int pinA, int pinB) {
   return 0;
 }
 
+// Drive both haptic motors from current smoothed sensor values.
+// Motor 1 ← dial average (indices 0–2), Motor 2 ← slider average (indices 3–6).
+void updateHaptics() {
+  if (!hapticEnabled) return;
+  int dialAvg   = ((int)smoothed[0] + (int)smoothed[1] + (int)smoothed[2]) / 3;
+  int sliderAvg = ((int)smoothed[3] + (int)smoothed[4] + (int)smoothed[5] + (int)smoothed[6]) / 4;
+  haptic1.setRealtimeValue((uint8_t)map(dialAvg,   0, 4096, 0, 127));
+  haptic2.setRealtimeValue((uint8_t)map(sliderAvg, 0, 4096, 0, 127));
+}
+
 // ── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
@@ -92,6 +118,15 @@ void setup() {
   for (int i = 0; i < 10; i++) {
     pinMode(digitalPins[i], INPUT_PULLUP);
   }
+
+  // Haptic controllers — I2C on Mega: SDA=20, SCL=21
+  haptic1.begin(0x5A);
+  haptic1.setMode(DRV2605_MODE_REALTIME);
+  haptic1.setRealtimeValue(0);
+
+  haptic2.begin(0x5B);
+  haptic2.setMode(DRV2605_MODE_REALTIME);
+  haptic2.setRealtimeValue(0);
 }
 
 // ── Loop ──────────────────────────────────────────────────────────
@@ -125,6 +160,7 @@ void loop() {
   if (v3_2 != prev3way[1]) { prev3way[1] = v3_2; sendMsg("/3way/2", v3_2); }
 
   // Buttons: debounce + send on change
+  // button2 rising edge (0→1) also toggles haptic motors
   unsigned long now = millis();
   for (int i = 0; i < 3; i++) {
     int val = !digitalRead(BTN_PINS[i]);
@@ -132,8 +168,18 @@ void loop() {
       prevBtn[i]       = val;
       btnLastChange[i] = now;
       sendMsg(BTN_ADDR[i], val);
+      if (i == 1 && val == 1) {   // button2 press → toggle haptics
+        hapticEnabled = !hapticEnabled;
+        if (!hapticEnabled) {
+          haptic1.setRealtimeValue(0);
+          haptic2.setRealtimeValue(0);
+        }
+      }
     }
   }
+
+  // Update haptic motor intensities from current sensor readings
+  updateHaptics();
 
   delay(5);
 }

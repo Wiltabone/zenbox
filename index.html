@@ -19,6 +19,7 @@
 			height: 100%;
 			margin: 0px;
 			overflow: hidden;
+			cursor: none;
 		}
 
 		/* style for the code sections */
@@ -50,6 +51,19 @@
 			z-index: -1000;
 			position: fixed;
 		}
+
+		#haptic-status {
+			position: center;
+			bottom: 2%;
+			right: 2%;
+			color: white;
+			font-size: 1.2vw;
+			letter-spacing: 0.1em;
+			opacity: 0;
+			transition: opacity 0.4s;
+			pointer-events: none;
+			z-index: 100;
+		}
 	</style>
 </head>
 <body>
@@ -59,6 +73,8 @@
 	<div>
 		<p id="o0"></p>
 	</div>
+	<!-- haptic status overlay (shown briefly on /button/2 toggle) -->
+	<div id="haptic-status"></div>
 
 	<!-- the script with all the core of the installation -->
 	<script>
@@ -132,8 +148,10 @@
 				switch3_2: 0,   // blend mode (0=add, 1=diff, 2=mult)
 
 				button1: 0,     // randomise
-				button2: 0,     // freeze
+				button2: 0,     // hold-to-freeze visuals
 				button3: 0,     // reset
+
+				haptic: true,   // haptic motors enabled (toggled by /button/2)
 			};
 
 
@@ -168,8 +186,12 @@
 			}
 			},
 			'/button/2':   (v) => {
-			// hold to freeze: button down sets speed 0, release restores
+			// hold-to-freeze visuals; each press also toggles haptic motors
 			ctrl.button2 = v;
+			if (v === 1) {
+				ctrl.haptic = !ctrl.haptic;
+				flashHapticStatus(ctrl.haptic);
+			}
 			},
 			'/button/3':   (v) => {
 			if (v === 1) randomiseControls();
@@ -200,6 +222,16 @@
 			controlMap[address](value);
 		}
 		});
+
+		// ─── Haptic status overlay ────────────────────────────────────
+		let hapticStatusTimer;
+		function flashHapticStatus(enabled) {
+			let el = document.getElementById('haptic-status');
+			el.textContent = enabled ? 'HAPTIC ON' : 'HAPTIC OFF';
+			el.style.opacity = 1;
+			clearTimeout(hapticStatusTimer);
+			hapticStatusTimer = setTimeout(() => { el.style.opacity = 0; }, 2000);
+		}
 
 		// ─── Randomise all continuous controls ────────────────────────
 		function randomiseControls() {
