@@ -2,6 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
+    v. 16062026.2
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
@@ -14,24 +15,22 @@
              D7+D8=/3way/2  (both HIGH=0, D7 LOW=1, D8 LOW=2)
     Buttons  D9=/button/1  D10=/button/2  D11=/button/3
     Haptic   SDA=20  SCL=21 (Mega hardware I2C)
-             DRV2605L #1 → I2C 0x5A (ADDR pin LOW  — default)
-             DRV2605L #2 → I2C 0x5B (ADDR pin HIGH — bridge ADDR pad)
+             DRV2605L → I2C 0x5A (ADDR pin LOW — default)
+             (Mega only has one I2C bus, so a single haptic motor is used)
 
   All digital inputs use INPUT_PULLUP — wire to GND when active.
   Analog values are scaled from 10-bit (0-1023) to 0-4096 to match
   the adcRes setting in index.html.
 
-  /button/2 toggles haptic motors on/off on each press.
-  Motor 1 intensity mirrors average of dial values.
-  Motor 2 intensity mirrors average of slider values.
+  /button/2 toggles the haptic motor on/off on each press.
+  Motor intensity mirrors the average of all dial and slider values.
 */
 
 #include <Wire.h>
 #include <Adafruit_DRV2605.h>
 
-// ── Haptic controllers ────────────────────────────────────────────
-Adafruit_DRV2605 haptic1;   // 0x5A — ADDR pin LOW (default)
-Adafruit_DRV2605 haptic2;   // 0x5B — ADDR pin HIGH
+// ── Haptic controller ─────────────────────────────────────────────
+Adafruit_DRV2605 haptic;   // 0x5A — ADDR pin LOW (default)
 
 bool hapticEnabled = true;
 
@@ -88,14 +87,14 @@ int read3way(int pinA, int pinB) {
   return 0;
 }
 
-// Drive both haptic motors from current smoothed sensor values.
-// Motor 1 ← dial average (indices 0–2), Motor 2 ← slider average (indices 3–6).
+// Drive the haptic motor from current smoothed sensor values.
+// Intensity ← average of all dials (0–2) and sliders (3–6).
 void updateHaptics() {
   if (!hapticEnabled) return;
-  int dialAvg   = ((int)smoothed[0] + (int)smoothed[1] + (int)smoothed[2]) / 3;
-  int sliderAvg = ((int)smoothed[3] + (int)smoothed[4] + (int)smoothed[5] + (int)smoothed[6]) / 4;
-  haptic1.setRealtimeValue((uint8_t)map(dialAvg,   0, 4096, 0, 127));
-  haptic2.setRealtimeValue((uint8_t)map(sliderAvg, 0, 4096, 0, 127));
+  int sum = 0;
+  for (int i = 0; i < 7; i++) sum += (int)smoothed[i];
+  int avg = sum / 7;
+  haptic.setRealtimeValue((uint8_t)map(avg, 0, 4096, 0, 127));
 }
 
 // ── Setup ─────────────────────────────────────────────────────────
@@ -119,14 +118,10 @@ void setup() {
     pinMode(digitalPins[i], INPUT_PULLUP);
   }
 
-  // Haptic controllers — I2C on Mega: SDA=20, SCL=21
-  haptic1.begin(0x5A);
-  haptic1.setMode(DRV2605_MODE_REALTIME);
-  haptic1.setRealtimeValue(0);
-
-  haptic2.begin(0x5B);
-  haptic2.setMode(DRV2605_MODE_REALTIME);
-  haptic2.setRealtimeValue(0);
+  // Haptic controller — I2C on Mega: SDA=20, SCL=21
+  haptic.begin();
+  haptic.setMode(DRV2605_MODE_REALTIME);
+  haptic.setRealtimeValue(0);
 }
 
 // ── Loop ──────────────────────────────────────────────────────────
@@ -160,7 +155,7 @@ void loop() {
   if (v3_2 != prev3way[1]) { prev3way[1] = v3_2; sendMsg("/3way/2", v3_2); }
 
   // Buttons: debounce + send on change
-  // button2 rising edge (0→1) also toggles haptic motors
+  // button2 rising edge (0→1) also toggles the haptic motor
   unsigned long now = millis();
   for (int i = 0; i < 3; i++) {
     int val = !digitalRead(BTN_PINS[i]);
@@ -171,14 +166,13 @@ void loop() {
       if (i == 1 && val == 1) {   // button2 press → toggle haptics
         hapticEnabled = !hapticEnabled;
         if (!hapticEnabled) {
-          haptic1.setRealtimeValue(0);
-          haptic2.setRealtimeValue(0);
+          haptic.setRealtimeValue(0);
         }
       }
     }
   }
 
-  // Update haptic motor intensities from current sensor readings
+  // Update haptic motor intensity from current sensor readings
   updateHaptics();
 
   delay(5);
