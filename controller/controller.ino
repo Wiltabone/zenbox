@@ -2,7 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
-    v. 17062026.5
+    v. 17062026.7
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
@@ -33,7 +33,6 @@
 Adafruit_DRV2605 haptic;   // 0x5A — ADDR pin LOW (default)
 
 bool hapticEnabled = true;
-const uint8_t      HAPTIC_LEVEL    = 64;   // fixed RTP intensity (0–127)
 const unsigned long HAPTIC_PULSE_MS = 20;  // pulse duration in milliseconds
 unsigned long      hapticOffAt     = 0;    // millis() when to silence motor
 
@@ -90,10 +89,12 @@ int read3way(int pinA, int pinB) {
   return 0;
 }
 
-void triggerHaptic() {
+void triggerHaptic(uint8_t level) {
   if (!hapticEnabled) return;
-  haptic.setRealtimeValue(HAPTIC_LEVEL);
-  hapticOffAt = millis() + HAPTIC_PULSE_MS;
+  if (level > 0) {
+    haptic.setRealtimeValue(level);
+    hapticOffAt = millis() + HAPTIC_PULSE_MS;
+  }
 }
 
 void updateHaptics() {
@@ -144,9 +145,10 @@ void loop() {
     smoothed[i] = raw * (1.0 - SMOOTH) + smoothed[i] * SMOOTH;
     int val = (int)smoothed[i];
     if (abs(val - prevAnalog[i]) > THRESH) {
+      int delta = abs(val - prevAnalog[i]);
       prevAnalog[i] = val;
       sendMsg(ANALOG_ADDR[i], val);
-      triggerHaptic();
+      triggerHaptic((uint8_t)constrain(map(delta, THRESH, 200, 40, 127), 40, 127));
     }
   }
 
