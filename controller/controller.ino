@@ -2,7 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
-    v. 16062026.2
+    v. 17062026.1
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
