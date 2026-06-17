@@ -2,7 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
-    v. 17062026.1
+    v. 17062026.3
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
@@ -23,7 +23,7 @@
   the adcRes setting in index.html.
 
   /button/2 toggles the haptic motor on/off on each press.
-  Motor intensity mirrors the average of all dial and slider values.
+  Motor pulses on each control change — intensity proportional to movement speed.
 */
 
 #include <Wire.h>
@@ -32,7 +32,9 @@
 // ── Haptic controller ─────────────────────────────────────────────
 Adafruit_DRV2605 haptic;   // 0x5A — ADDR pin LOW (default)
 
-bool hapticEnabled = true;
+bool  hapticEnabled = true;
+float hapticPulse   = 0.0;         // decaying RTP level, kicked on control change
+const float HAPTIC_DECAY = 0.85;   // multiplied each 5 ms loop (~90 ms to silence)
 
 // ── Analog pins ──────────────────────────────────────────────────
 const int ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5, A6 };
@@ -87,14 +89,14 @@ int read3way(int pinA, int pinB) {
   return 0;
 }
 
-// Drive the haptic motor from current smoothed sensor values.
-// Intensity ← average of all dials (0–2) and sliders (3–6).
+// Drive the haptic motor with a decaying pulse.
+// hapticPulse is kicked proportionally whenever a control changes value,
+// then fades to 0 so the motor is silent when nothing is being touched.
 void updateHaptics() {
   if (!hapticEnabled) return;
-  int sum = 0;
-  for (int i = 0; i < 7; i++) sum += (int)smoothed[i];
-  int avg = sum / 7;
-  haptic.setRealtimeValue((uint8_t)map(avg, 0, 4096, 0, 127));
+  haptic.setRealtimeValue((uint8_t)hapticPulse);
+  hapticPulse *= HAPTIC_DECAY;
+  if (hapticPulse < 1.0f) hapticPulse = 0.0f;
 }
 
 // ── Setup ─────────────────────────────────────────────────────────
@@ -115,7 +117,7 @@ void setup() {
     BTN1_PIN, BTN2_PIN, BTN3_PIN
   };
   for (int i = 0; i < 10; i++) {
-    pinMode(digitalPins[i], INPUT_PULLUP);
+    pinMode(digitalPins[i], INPUT);
   }
 
   // Haptic controller — I2C on Mega: SDA=20, SCL=21
@@ -137,8 +139,11 @@ void loop() {
     smoothed[i] = raw * (1.0 - SMOOTH) + smoothed[i] * SMOOTH;
     int val = (int)smoothed[i];
     if (abs(val - prevAnalog[i]) > THRESH) {
+      int delta = abs(val - prevAnalog[i]);
       prevAnalog[i] = val;
       sendMsg(ANALOG_ADDR[i], val);
+      float kick = constrain(map(delta, 0, 512, 0, 127), 0, 127);
+      if (kick > hapticPulse) hapticPulse = kick;
     }
   }
 
