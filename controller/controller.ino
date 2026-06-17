@@ -2,7 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
-    v. 17062026.3
+    v. 17062026.5
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
@@ -23,7 +23,7 @@
   the adcRes setting in index.html.
 
   /button/2 toggles the haptic motor on/off on each press.
-  Motor pulses on each control change — intensity proportional to movement speed.
+  Motor pulses briefly on each control change.
 */
 
 #include <Wire.h>
@@ -32,9 +32,10 @@
 // ── Haptic controller ─────────────────────────────────────────────
 Adafruit_DRV2605 haptic;   // 0x5A — ADDR pin LOW (default)
 
-bool  hapticEnabled = true;
-float hapticPulse   = 0.0;         // decaying RTP level, kicked on control change
-const float HAPTIC_DECAY = 0.85;   // multiplied each 5 ms loop (~90 ms to silence)
+bool hapticEnabled = true;
+const uint8_t      HAPTIC_LEVEL    = 64;   // fixed RTP intensity (0–127)
+const unsigned long HAPTIC_PULSE_MS = 20;  // pulse duration in milliseconds
+unsigned long      hapticOffAt     = 0;    // millis() when to silence motor
 
 // ── Analog pins ──────────────────────────────────────────────────
 const int ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5, A6 };
@@ -84,19 +85,23 @@ void sendMsg(const char* addr, int val) {
 
 // Returns 0, 1, or 2 based on which leg of the 3-way switch is pulled low.
 int read3way(int pinA, int pinB) {
-  if (!digitalRead(pinA)) return 1;
-  if (!digitalRead(pinB)) return 2;
+  if (digitalRead(pinA)) return 1;
+  if (digitalRead(pinB)) return 2;
   return 0;
 }
 
-// Drive the haptic motor with a decaying pulse.
-// hapticPulse is kicked proportionally whenever a control changes value,
-// then fades to 0 so the motor is silent when nothing is being touched.
+void triggerHaptic() {
+  if (!hapticEnabled) return;
+  haptic.setRealtimeValue(HAPTIC_LEVEL);
+  hapticOffAt = millis() + HAPTIC_PULSE_MS;
+}
+
 void updateHaptics() {
   if (!hapticEnabled) return;
-  haptic.setRealtimeValue((uint8_t)hapticPulse);
-  hapticPulse *= HAPTIC_DECAY;
-  if (hapticPulse < 1.0f) hapticPulse = 0.0f;
+  if (hapticOffAt > 0 && millis() >= hapticOffAt) {
+    haptic.setRealtimeValue(0);
+    hapticOffAt = 0;
+  }
 }
 
 // ── Setup ─────────────────────────────────────────────────────────
@@ -139,11 +144,9 @@ void loop() {
     smoothed[i] = raw * (1.0 - SMOOTH) + smoothed[i] * SMOOTH;
     int val = (int)smoothed[i];
     if (abs(val - prevAnalog[i]) > THRESH) {
-      int delta = abs(val - prevAnalog[i]);
       prevAnalog[i] = val;
       sendMsg(ANALOG_ADDR[i], val);
-      float kick = constrain(map(delta, 0, 512, 0, 127), 0, 127);
-      if (kick > hapticPulse) hapticPulse = kick;
+      triggerHaptic();
     }
   }
 
