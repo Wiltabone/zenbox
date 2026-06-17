@@ -113,6 +113,11 @@ parser.on('data', (line) => {
 	const value   = parseFloat(parts[1]);
 	if (!address.startsWith('/') || isNaN(value)) return;
 
+	if (address === '/haptic/status') {
+		console.log(value === 1 ? 'Haptic motor found.' : 'WARNING: haptic motor not found — check I2C wiring on SDA=20/SCL=21.');
+		return;
+	}
+
 	if (!address.startsWith('/dial/') && !address.startsWith('/slider/')) console.log('serial:', address, value);
 
 	if (init[address] !== undefined) { init[address] = value; }

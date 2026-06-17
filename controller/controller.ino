@@ -119,9 +119,13 @@ void setup() {
   }
 
   // Haptic controller — I2C on Mega: SDA=20, SCL=21
-  haptic.begin();
-  haptic.setMode(DRV2605_MODE_REALTIME);
-  haptic.setRealtimeValue(0);
+  if (!haptic.begin()) {
+    hapticEnabled = false;  // device not found — skip all haptic calls
+    sendMsg("/haptic/status", 0);
+  } else {
+    haptic.setMode(DRV2605_MODE_REALTIME);
+    haptic.setRealtimeValue(0);
+  }
 }
 
 // ── Loop ──────────────────────────────────────────────────────────
