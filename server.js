@@ -72,8 +72,7 @@ let osc = new Server(oscPort, '0.0.0.0', () => {
 	
 	// receive messages and forward
 	osc.on('message', (msg) => {
-		// print received messages if --debug
-		if (verbose){ console.log('received:', ...msg) }
+		console.log('received:', ...msg);
 
 		// store the new values as the initials 
 		// for when page gets refreshed
@@ -114,7 +113,7 @@ parser.on('data', (line) => {
 	const value   = parseFloat(parts[1]);
 	if (!address.startsWith('/') || isNaN(value)) return;
 
-	if (verbose) { console.log('serial:', address, value); }
+	console.log('serial:', address, value);
 
 	if (init[address] !== undefined) { init[address] = value; }
 	io.emit('message', address, value);
