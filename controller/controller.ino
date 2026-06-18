@@ -2,7 +2,7 @@
   The Reflective Zen Box
   Controller code for Arduino Mega
   by Wilbert Tabone & Thijs Prakken, 2026
-    v. 17062026.7
+    v. 17062026.9
 
   Sends control messages over Serial (USB) directly to the Raspberry Pi.
   Each message is one line: /address value\n
@@ -33,8 +33,10 @@
 Adafruit_DRV2605 haptic;   // 0x5A — ADDR pin LOW (default)
 
 bool hapticEnabled = true;
-const unsigned long HAPTIC_PULSE_MS = 20;  // pulse duration in milliseconds
-unsigned long      hapticOffAt     = 0;    // millis() when to silence motor
+const unsigned long HAPTIC_PULSE_MS   = 20;     // pulse duration in milliseconds
+const unsigned long HAPTIC_TIMEOUT_MS = 10000;  // silence motor after 10 s of no input
+unsigned long      hapticOffAt       = 0;
+unsigned long      lastActivityAt    = 0;
 
 // ── Analog pins ──────────────────────────────────────────────────
 const int ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5, A6 };
@@ -61,8 +63,9 @@ const int   BTN_PINS[]  = { BTN1_PIN,   BTN2_PIN,   BTN3_PIN   };
 const char* BTN_ADDR[]  = { "/button/1", "/button/2", "/button/3" };
 
 // ── Analog smoothing & threshold ─────────────────────────────────
-const float SMOOTH = 0.7;   // 0=no smoothing, higher=smoother/slower
-const int   THRESH = 8;     // minimum change required to send (0–4096 scale)
+const float SMOOTH        = 0.7;  // 0=no smoothing, higher=smoother/slower
+const int   THRESH        = 8;    // minimum change required to send (0–4096 scale)
+const int   HAPTIC_THRESH = 20;   // minimum delta required to engage the haptic motor
 
 float smoothed[7];
 int   prevAnalog[7];
@@ -91,6 +94,7 @@ int read3way(int pinA, int pinB) {
 
 void triggerHaptic(uint8_t level) {
   if (!hapticEnabled) return;
+  lastActivityAt = millis();
   if (level > 0) {
     haptic.setRealtimeValue(level);
     hapticOffAt = millis() + HAPTIC_PULSE_MS;
@@ -99,7 +103,14 @@ void triggerHaptic(uint8_t level) {
 
 void updateHaptics() {
   if (!hapticEnabled) return;
-  if (hapticOffAt > 0 && millis() >= hapticOffAt) {
+  unsigned long now = millis();
+  if (lastActivityAt > 0 && (now - lastActivityAt) >= HAPTIC_TIMEOUT_MS) {
+    haptic.setRealtimeValue(0);
+    lastActivityAt = 0;
+    hapticOffAt    = 0;
+    return;
+  }
+  if (hapticOffAt > 0 && now >= hapticOffAt) {
     haptic.setRealtimeValue(0);
     hapticOffAt = 0;
   }
@@ -148,7 +159,8 @@ void loop() {
       int delta = abs(val - prevAnalog[i]);
       prevAnalog[i] = val;
       sendMsg(ANALOG_ADDR[i], val);
-      triggerHaptic((uint8_t)constrain(map(delta, THRESH, 200, 40, 127), 40, 127));
+      if (delta >= HAPTIC_THRESH)
+        triggerHaptic((uint8_t)constrain(map(delta, HAPTIC_THRESH, 200, 40, 127), 40, 127));
     }
   }
 
